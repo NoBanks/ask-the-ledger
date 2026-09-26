@@ -221,6 +221,7 @@ async function start() {
         case 'transcript.agent.delta':
           if (!state.agentLine) state.agentLine = line('agent', '')
           state.agentLine.textContent += (state.agentLine.textContent ? ' ' : '') + msg.delta
+          $('transcript').scrollTop = $('transcript').scrollHeight
           break
         case 'transcript.agent':
           if (!state.agentLine) state.agentLine = line('agent', '')
