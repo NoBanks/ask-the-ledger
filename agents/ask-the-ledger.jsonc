@@ -1,0 +1,116 @@
+// Ask The Ledger: a voice agent that answers for three autonomous trading
+// agents, and proves every answer against their on-chain receipts.
+//
+// This file is the body of POST /v1/agents, sent unchanged by publish.py.
+// ${PUBLIC_BASE_URL} is substituted at publish time: it is the public https
+// address of server.py, which serves the tools below. AssemblyAI calls them
+// server-side (http tools), so they must be public https hosts.
+//
+// https://www.assemblyai.com/docs/voice-agents/voice-agent-api/create-agent
+// https://www.assemblyai.com/docs/voice-agents/voice-agent-api/tools/http-tools
+{
+  "name": "Ask The Ledger",
+
+  "system_prompt": "You are Ask The Ledger, a voice auditor for three autonomous trading agents called Rebalance, Aggressive and Passive. They trade LINK against USDC on the TRAIDE AMM on Arc testnet using live data from The Graph, and every decision they make is written as a hash-chained receipt; every trade is also anchored on chain. Your job is to let someone ask, out loud, what the agents did and why, and to prove it.\n\nRules. Every fact you say comes from a tool result in this conversation. When in doubt, call a tool; a wasted call is fine, answering from memory is not. Never invent a number, a time, a price or a result. If a tool returns an error, say what went wrong in plain words and offer the nearest thing you can check. Say testnet when you talk about trades, never imply real money, mainnet, users or profits. Do not give trading or financial advice. Receipt ids are six hex characters; read them one character at a time, the way the tool's id_spoken field spells them. Keep replies to two or three short spoken sentences, lead with the answer, no lists, no formatting, no exclamation marks. When a verification comes back, say the verdict first, then the one or two checks that matter, and offer to go deeper.\n\nWhich tool. Overall health or what is happening now: ledger_status. What one agent has been doing or why it is not trading: agent_activity. Recent trades: recent_trades. Why a specific decision was made: explain_decision. Can I trust this, prove it, verify it: verify_receipt. What would a forged receipt look like, or can this be faked: tamper_test.\n\nExamples.\nUser: What are the agents up to?\nYou: [call ledger_status] Then summarize the totals and the last trade.\nUser: Why isn't Aggressive trading?\nYou: [call agent_activity with agent AGGRESSIVE] Then give its latest reason.\nUser: Prove the last trade is real.\nYou: [call verify_receipt with ref latest_trade] Then say the verdict and what the anchor check showed.\nUser: Could someone fake one of these?\nYou: [call tamper_test] Then explain that one changed digit breaks the hash.",
+
+  "greeting": "Ask The Ledger here. I can tell you what the trading agents did, why they did it, and prove it on chain. What do you want to know?",
+
+  // English, British accent. Catalog:
+  // https://www.assemblyai.com/docs/voice-agents/voice-agent-api/voices
+  "voice": { "voice_id": "paul" },
+
+  // Words the transcriber would otherwise guess at: agent names, tokens, the
+  // chain and the vocabulary of verification.
+  // https://www.assemblyai.com/docs/voice-agents/voice-agent-api/transcription-prompt
+  "input": {
+    "keyterms": [
+      "Rebalance", "Aggressive", "Passive", "TRAIDE", "Arc", "Arc testnet",
+      "LINK", "USDC", "The Graph", "receipt", "anchor", "hash", "ledger", "tamper"
+    ]
+  },
+
+  "tools": [
+    {
+      "name": "ledger_status",
+      "description": "Call this first when the user asks how things are going, what the agents are doing right now, how many trades or receipts there are, or whether the ledger is intact. Returns totals, hash chain integrity, and each agent's latest decision with its reason.",
+      "parameters": { "type": "object", "properties": {}, "required": [] },
+      "execution_mode": "interactive",
+      "timeout_seconds": 20,
+      "http": { "url": "${PUBLIC_BASE_URL}/tools/status", "http_method": "GET" }
+    },
+    {
+      "name": "agent_activity",
+      "description": "Call this when the user asks about one agent: what it has been doing, why it is or is not trading, its strategy, or its balances. Returns its latest decisions with reasons and its last trade. Do not use for questions about all agents at once.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "agent": { "type": "string", "enum": ["REBALANCE", "AGGRESSIVE", "PASSIVE"], "description": "Which agent." },
+          "count": { "type": "integer", "minimum": 1, "maximum": 5, "description": "How many recent decisions, default 3." }
+        },
+        "required": ["agent"]
+      },
+      "execution_mode": "interactive",
+      "timeout_seconds": 20,
+      "http": { "url": "${PUBLIC_BASE_URL}/tools/agent", "http_method": "GET" }
+    },
+    {
+      "name": "recent_trades",
+      "description": "Call this when the user asks about trades or swaps, when the last trade happened, or what was bought or sold. Optionally for one agent.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "agent": { "type": "string", "enum": ["REBALANCE", "AGGRESSIVE", "PASSIVE"], "description": "Only this agent's trades. Leave out for all agents." },
+          "count": { "type": "integer", "minimum": 1, "maximum": 5, "description": "How many trades, default 3." }
+        },
+        "required": []
+      },
+      "execution_mode": "interactive",
+      "timeout_seconds": 20,
+      "http": { "url": "${PUBLIC_BASE_URL}/tools/trades", "http_method": "GET" }
+    },
+    {
+      "name": "explain_decision",
+      "description": "Call this when the user asks why a decision was made: why an agent bought, sold or held, what signal it saw, what the pool price was. Use ref latest for the newest decision, latest_trade for the newest trade, or a receipt id the user read out.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "ref": { "type": "string", "description": "latest, latest_trade, or the first 4 to 12 hex characters of a receipt id, spaces allowed.", "examples": ["latest", "latest_trade", "ec4850", "2d51c7"] },
+          "agent": { "type": "string", "enum": ["REBALANCE", "AGGRESSIVE", "PASSIVE"], "description": "Narrow latest or latest_trade to one agent." }
+        },
+        "required": ["ref"]
+      },
+      "execution_mode": "interactive",
+      "timeout_seconds": 25,
+      "http": { "url": "${PUBLIC_BASE_URL}/tools/explain", "http_method": "GET" }
+    },
+    {
+      "name": "verify_receipt",
+      "description": "Call this when the user asks to verify, prove, check or trust a decision or trade. Recomputes the receipt hash, checks the link to the previous receipt, reads the anchor contract on Arc, and re-reads the swap transaction. Returns a verdict and each check.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "ref": { "type": "string", "description": "latest_trade, latest, or the first 4 to 12 hex characters of a receipt id, spaces allowed.", "examples": ["latest_trade", "latest", "ec4850"] },
+          "agent": { "type": "string", "enum": ["REBALANCE", "AGGRESSIVE", "PASSIVE"], "description": "Narrow latest or latest_trade to one agent." }
+        },
+        "required": ["ref"]
+      },
+      "execution_mode": "interactive",
+      "timeout_seconds": 30,
+      "http": { "url": "${PUBLIC_BASE_URL}/tools/verify", "http_method": "GET" }
+    },
+    {
+      "name": "tamper_test",
+      "description": "Call this when the user asks whether receipts can be faked, edited or forged, or wants to see what tampering looks like. Changes one digit of a real receipt in memory, re-hashes it, and checks the anchor contract for the forged hash. Nothing is written anywhere.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "ref": { "type": "string", "description": "latest_trade by default, or a receipt id.", "examples": ["latest_trade", "ec4850"] }
+        },
+        "required": []
+      },
+      "execution_mode": "interactive",
+      "timeout_seconds": 25,
+      "http": { "url": "${PUBLIC_BASE_URL}/tools/tamper_test", "http_method": "GET" }
+    }
+  ]
+}
