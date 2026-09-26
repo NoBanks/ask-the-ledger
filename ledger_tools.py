@@ -349,6 +349,11 @@ def tool_status() -> dict:
     if last_trade:
         lt = summarize(last_trade[0])
         say += f" Last trade: {lt['agent'].title()} {lt['did']} {lt['when_spoken']}."
+    # Each agent's OWN logged reason, verbatim. The model once merged two agents' reasons into one
+    # ("both holding due to low USDC" when one was an RPC error); spelling each out prevents that.
+    for a in AGENTS:
+        if a in latest:
+            say += f" {a.title()} {latest[a]['did']}: {latest[a]['reason']}."
     return {
         "say": say,
         "totals": t,
