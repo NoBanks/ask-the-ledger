@@ -440,13 +440,20 @@ def tool_tamper_test(ref: str = "latest_trade", agent: str = "") -> dict:
     }
 
 
+def _ref(q: dict, default: str) -> str:
+    """Tools take which (enum: latest_trade | latest) plus an optional receipt_id. Free-text
+    string params with examples were never called by the managed model (2026-09-26), so the
+    enum carries the common case. The older ref param still works."""
+    return (q.get("receipt_id") or "").strip() or q.get("which") or q.get("ref") or default
+
+
 TOOLS = {
-    "tamper_test": lambda q: tool_tamper_test(q.get("ref", "latest_trade"), q.get("agent", "")),
+    "tamper_test": lambda q: tool_tamper_test(_ref(q, "latest_trade"), q.get("agent", "")),
     "status": lambda q: tool_status(),
     "agent": lambda q: tool_agent(q.get("agent", ""), q.get("count", 3)),
     "trades": lambda q: tool_trades(q.get("agent", ""), q.get("count", 3)),
-    "explain": lambda q: tool_explain(q.get("ref", "latest"), q.get("agent", "")),
-    "verify": lambda q: tool_verify(q.get("ref", "latest_trade"), q.get("agent", "")),
+    "explain": lambda q: tool_explain(_ref(q, "latest"), q.get("agent", "")),
+    "verify": lambda q: tool_verify(_ref(q, "latest_trade"), q.get("agent", "")),
 }
 
 
